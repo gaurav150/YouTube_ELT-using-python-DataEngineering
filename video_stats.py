@@ -73,9 +73,66 @@ def get_video_ids(base_url):
     except requests.exceptions.RequestException as e:
         raise e
 
+def extract_video_ids(video_ids, api_key=API_KEY):
+    """
+    Loads snippet and statistics for each video ID via ``videos.list`` (batched).
+
+    YouTube allows at most **50** ``id`` values per ``videos.list`` request; IDs are
+    split into chunks of that size automatically.
+
+    @param video_ids: List of YouTube video ID strings from ``get_video_ids``.
+    @param api_key: YouTube Data API v3 key.
+    @return: List of dicts with ``video_id``, ``title``, ``published_at``,
+        ``view_count``, ``like_count``, ``comment_count`` (counts may be ``None``
+        if the API omits them, e.g. likes hidden on some videos).
+    @throws requests.exceptions.RequestException: If an HTTP request fails.
+    @throws KeyError: If a returned item is missing ``snippet`` or ``statistics``.
+    """
+    extract_data = []
+
+    def batch_list(video_list, batch_size=50):
+        """Yields successive slices of ``video_list`` of length up to ``batch_size``."""
+        for i in range(0, len(video_list), batch_size):
+            yield video_list[i : i + batch_size]
+
+    # videos.list allows at most 50 id values per call (playlistItems maxResults can differ).
+    try:
+        for batch in batch_list(video_ids, 50):
+            video_ids_str = ",".join(batch)
+            url = (
+                "https://youtube.googleapis.com/youtube/v3/videos?"
+                f"part=snippet&part=statistics&id={video_ids_str}&key={api_key}"
+            )
+            response = requests.get(url)
+            response.raise_for_status()
+            data = response.json()
+
+            for item in data.get("items", []):
+                video_id = item["id"]
+                title = item["snippet"]["title"]
+                published_at = item["snippet"]["publishedAt"]
+                statistics = item.get("statistics", {})
+
+                extract_data.append(
+                    {
+                        "video_id": video_id,
+                        "title": title,
+                        "published_at": published_at,
+                        "view_count": statistics.get("viewCount"),
+                        "like_count": statistics.get("likeCount"),
+                        "comment_count": statistics.get("commentCount"),
+                    }
+                )
+    except requests.exceptions.RequestException as e:
+        raise e
+
+    return extract_data
+
+
+
 if __name__ == "__main__":
     playlist_id = get_playlist_id(CHANNEL_HANDLE, API_KEY)
-    print("Upload Playlist ID from function: " + playlist_id)
     base_url = f"https://youtube.googleapis.com/youtube/v3/playlistItems?part=contentDetails&maxResults={MAX_RESULTS}&playlistId={playlist_id}&key={API_KEY}"
     video_ids = get_video_ids(base_url)
-    print("Video IDs from function: " + str(video_ids))
+    extracted_data = extract_video_ids(video_ids, API_KEY)
+    print("Extracted video data: " + str(extracted_data))
