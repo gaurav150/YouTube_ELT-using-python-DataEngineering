@@ -1,6 +1,9 @@
+import json
 import os
 from dotenv import load_dotenv
 import requests
+from datetime import date
+
 
 load_dotenv(dotenv_path="./.env")
 API_KEY = os.getenv("API_KEY")
@@ -86,7 +89,9 @@ def extract_video_ids(video_ids, api_key=API_KEY):
         ``view_count``, ``like_count``, ``comment_count`` (counts may be ``None``
         if the API omits them, e.g. likes hidden on some videos).
     @throws requests.exceptions.RequestException: If an HTTP request fails.
-    @throws KeyError: If a returned item is missing ``snippet`` or ``statistics``.
+    @throws KeyError: If an item lacks ``id`` or ``snippet`` keys, or ``title`` /
+        ``publishedAt`` under ``snippet`` (``statistics`` is read via ``.get`` and
+        may be absent without raising).
     """
     extract_data = []
 
@@ -128,11 +133,29 @@ def extract_video_ids(video_ids, api_key=API_KEY):
 
     return extract_data
 
+def save_to_json(extracted_data):
+    """
+    Serializes ``extracted_data`` to a dated JSON file under ``./data/``.
 
+    Output path is ``./data/YT_data_<YYYY-MM-DD>.json``, where the date is
+    ``date.today()`` (local date). Writes with ``json.dump`` using ``indent=4``
+    and ``ensure_ascii=False`` so the file is indented and non-ASCII characters
+    (e.g. in titles) are stored as Unicode rather than ``\\u`` escapes.
+
+    @param extracted_data: JSON-serializable payload, typically the list of dicts
+        produced by ``extract_video_ids``.
+    @return: ``None`` (side effect only: creates or overwrites the file).
+    @throws OSError: If ``./data`` is not present (``open`` does not create it), the path is
+        invalid, or the file cannot be written (permissions, disk full, etc.).
+    @throws TypeError: If ``extracted_data`` contains objects that are not JSON-serializable.
+    """
+    file_path = f"./data/YT_data_{date.today()}.json"
+    with open(file_path, "w") as json_file:
+        json.dump(extracted_data, json_file, indent=4, ensure_ascii=False)
 
 if __name__ == "__main__":
     playlist_id = get_playlist_id(CHANNEL_HANDLE, API_KEY)
     base_url = f"https://youtube.googleapis.com/youtube/v3/playlistItems?part=contentDetails&maxResults={MAX_RESULTS}&playlistId={playlist_id}&key={API_KEY}"
     video_ids = get_video_ids(base_url)
     extracted_data = extract_video_ids(video_ids, API_KEY)
-    print("Extracted video data: " + str(extracted_data))
+    save_to_json(extracted_data)
